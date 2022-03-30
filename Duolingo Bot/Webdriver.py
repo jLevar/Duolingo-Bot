@@ -8,11 +8,13 @@ import time
 import json
 import platform
 
+
 # To - Do
 # Fill in the Blanks Questions
-# Read and Respond Questions
-# Note - The continue button and the check button have the same class name/css selector and it should be a variable
-# bc it is used a lot
+# Use the title of the question to know which question before looking for elements - theoretically removing need for those try blocks
+# Figure out why sometimes (answer_box?) throws an ElementNotInteractableException and fix it
+
+
 
 class Webdriver:
     def __init__(self):
@@ -27,6 +29,7 @@ class Webdriver:
         else:
             raise "Error: OS Not Recognized"
         driver.maximize_window()
+        self.use_keyboard_button_pressed = False
         self.driver = driver
 
     def login(self):
@@ -69,92 +72,83 @@ class Webdriver:
         driver.get(lesson_link)
 
         dictionary = self.load_dictionary_from_json()
-        use_keyboard_button_pressed = False
 
-        progress_bar_class_name = "_2YmyD"
-
-        driver.find_element(By.CLASS_NAME, progress_bar_class_name)
+        progress_bar = driver.find_element(By.CLASS_NAME, "_2YmyD")
         driver.implicitly_wait(2)
-        while EC.presence_of_element_located((By.CLASS_NAME, progress_bar_class_name)):
+
+        while EC.presence_of_element_located(progress_bar):
+            check_continue_button = driver.find_element(By.CLASS_NAME, "_3HhhB")
+
+            try:
+                question_title = driver.find_element(By.CLASS_NAME, "_2LZl6").text
+                print("\n" + question_title)
+            except NoSuchElementException:
+                check_continue_button.click()
+                continue
+
+            if EC.element_to_be_clickable(check_continue_button):
+                check_continue_button.click()
+
             # Open Response Questions
             try:
-                if not use_keyboard_button_pressed:
+                if not self.use_keyboard_button_pressed:
                     driver.find_element(By.CLASS_NAME, '_29cJe').click()
-                    use_keyboard_button_pressed = True
+                    self.use_keyboard_button_pressed = True
+
+                #if question_title != "Write this in Spanish" or "Write this in English":
+                #    raise NoSuchElementException
 
                 question_text = driver.find_element(By.CLASS_NAME, '_11rtD').text
                 answer_box = driver.find_element(By.CSS_SELECTOR, '._2EMUT')
-                check_button = driver.find_element(By.CSS_SELECTOR, '._3HhhB')
-
                 answer = dictionary.get(question_text)
+
                 if answer is not None:
-                    answer_box.send_keys(answer)
-                    time.sleep(1)
-                    check_button.click()
+                    driver.find_element(By.CSS_SELECTOR, '._2EMUT').send_keys(answer)
+                    check_continue_button.click()
                 else:
                     answer_box.send_keys("Unknown Answer")
-                    time.sleep(1)
-                    check_button.click()
+                    check_continue_button.click()
                     dictionary[question_text] = driver.find_element(By.CLASS_NAME, '_1UqAr').text
-
-                check_button.click()
-                self.save_dictionary_to_json(dictionary)
+                    self.save_dictionary_to_json(dictionary)
+                    print("Saved Response to JSON")
                 continue
-            except NoSuchElementException:
-                pass
-
-            except Exception as e:
-                print(type(e))
+            except (NoSuchElementException, ElementNotInteractableException):
                 pass
 
             # Multiple Choice Questions
             try:
                 buttons = driver.find_elements(By.CLASS_NAME, '_2CuNz')
-                question_text = driver.find_element(By.CLASS_NAME, '_3Fi4A').text
-                check_button = driver.find_element(By.CSS_SELECTOR, '._3HhhB')
+                if question_title == "Read and respond":
+                    question_text = driver.find_element(By.CLASS_NAME, '_9XgpY').text
+                else:
+                    question_text = driver.find_element(By.CLASS_NAME, '_3Fi4A').text
                 answer = dictionary.get(question_text)
 
                 if answer is None:
                     # Hit skip and add answer
                     driver.find_element(By.CSS_SELECTOR, '.J51YJ').click()
                     dictionary[question_text] = driver.find_element(By.CLASS_NAME, '_1UqAr').text
+                    self.save_dictionary_to_json(dictionary)
+                    print("Saved MQA to JSON")
                 else:
                     for button in buttons:
                         if button.text == answer:
                             button.click()
-                            check_button.click()
+                            check_continue_button.click()
                             break
-                # Continue button
-                driver.find_element(By.CLASS_NAME, "_3HhhB").click()
-                self.save_dictionary_to_json(dictionary)
                 continue
             except NoSuchElementException:
                 pass
 
-            # Error Handling - Finding Ways to Skip Question
+            # Last Resort - Skips Question
             try:
                 # Skip button
                 driver.find_element(By.CSS_SELECTOR, '.J51YJ').click()
             except NoSuchElementException:
                 pass
 
-            try:
-                # Continue button
-                driver.find_element(By.CLASS_NAME, "_3HhhB").click()
-                continue
-            except NoSuchElementException:
-                pass
-
-            try:
-                # Next button
-                driver.find_element(By.CLASS_NAME, '_3HhhB').click()
-                continue
-            except NoSuchElementException:
-                pass
-
-            self.save_dictionary_to_json(dictionary)
-
         print("Lesson complete")
+        self.save_dictionary_to_json(dictionary)
         self.driver = driver
 
     @staticmethod
