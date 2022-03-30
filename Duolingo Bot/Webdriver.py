@@ -1,5 +1,6 @@
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException
+from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, \
+    StaleElementReferenceException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -7,14 +8,10 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
 import platform
-
-
 # To - Do
 # Fill in the Blanks Questions
 # Use the title of the question to know which question before looking for elements - theoretically removing need for those try blocks
 # Figure out why sometimes (answer_box?) throws an ElementNotInteractableException and fix it
-
-
 
 class Webdriver:
     def __init__(self):
@@ -77,50 +74,52 @@ class Webdriver:
         driver.implicitly_wait(2)
 
         while EC.presence_of_element_located(progress_bar):
-            check_continue_button = driver.find_element(By.CLASS_NAME, "_3HhhB")
+            next_button = driver.find_element(By.CLASS_NAME, "_3HhhB")
 
-            try:
-                question_title = driver.find_element(By.CLASS_NAME, "_2LZl6").text
-                print("\n" + question_title)
-            except NoSuchElementException:
-                check_continue_button.click()
-                continue
+            # Presses next_button until it is disabled
+            while next_button.get_attribute("aria-disabled") == "false":
+                next_button.click()
 
-            if EC.element_to_be_clickable(check_continue_button):
-                check_continue_button.click()
+            question_title = driver.find_element(By.CLASS_NAME, "_2LZl6").text
+            print(question_title)
 
             # Open Response Questions
             try:
+                if question_title != "Write this in Spanish" and question_title != "Write this in English":
+                    raise NoSuchElementException
+
                 if not self.use_keyboard_button_pressed:
                     driver.find_element(By.CLASS_NAME, '_29cJe').click()
                     self.use_keyboard_button_pressed = True
 
-                #if question_title != "Write this in Spanish" or "Write this in English":
-                #    raise NoSuchElementException
-
                 question_text = driver.find_element(By.CLASS_NAME, '_11rtD').text
-                answer_box = driver.find_element(By.CSS_SELECTOR, '._2EMUT')
                 answer = dictionary.get(question_text)
 
                 if answer is not None:
-                    driver.find_element(By.CSS_SELECTOR, '._2EMUT').send_keys(answer)
-                    check_continue_button.click()
+                    driver.find_element(By.CLASS_NAME, '_2EMUT').send_keys(answer)
+                    next_button.click()
                 else:
-                    answer_box.send_keys("Unknown Answer")
-                    check_continue_button.click()
+                    driver.find_element(By.CLASS_NAME, '_2EMUT').send_keys("Unknown Answer")
+                    # TO-DO
+                    # wait until next_button's attribute 'aria-disabled' is false
+                    next_button.click()
                     dictionary[question_text] = driver.find_element(By.CLASS_NAME, '_1UqAr').text
                     self.save_dictionary_to_json(dictionary)
                     print("Saved Response to JSON")
                 continue
-            except (NoSuchElementException, ElementNotInteractableException):
+            except NoSuchElementException:
                 pass
 
             # Multiple Choice Questions
             try:
                 buttons = driver.find_elements(By.CLASS_NAME, '_2CuNz')
+
                 if question_title == "Read and respond":
                     question_text = driver.find_element(By.CLASS_NAME, '_9XgpY').text
                 else:
+                    # If it is a multiple-select fill in the blank, it should skip it
+                    if driver.find_element(By.CLASS_NAME, "_1_wIY"):
+                        raise NoSuchElementException
                     question_text = driver.find_element(By.CLASS_NAME, '_3Fi4A').text
                 answer = dictionary.get(question_text)
 
@@ -134,7 +133,7 @@ class Webdriver:
                     for button in buttons:
                         if button.text == answer:
                             button.click()
-                            check_continue_button.click()
+                            next_button.click()
                             break
                 continue
             except NoSuchElementException:
