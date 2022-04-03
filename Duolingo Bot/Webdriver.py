@@ -1,6 +1,6 @@
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException, \
-    StaleElementReferenceException
+from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -9,23 +9,28 @@ import time
 import json
 import platform
 # To - Do
-# Fill in the Blanks Questions
-# Use the title of the question to know which question before looking for elements - theoretically removing need for those try blocks
-# Figure out why sometimes (answer_box?) throws an ElementNotInteractableException and fix it
+# Matching Questions
+# Use the title of the question to know which question before looking for elements (saves 2 seconds per question type)
+
 
 class Webdriver:
     def __init__(self):
         op_sys = platform.system()
+
         if op_sys == "Darwin":
             self.loginPath = "/Users/joshua.levar/Desktop/I'm Stuff/duoLogin.txt"
-            driver = webdriver.Chrome(service=Service("/Users/joshua.levar/Desktop/chromedriver"))
+            chrome_options = Options()
+            chrome_options.add_argument("--start-fullscreen")
+            driver = webdriver.Chrome(service=Service("/Users/joshua.levar/Desktop/chromedriver"),
+                                      chrome_options=chrome_options)
         elif op_sys == "Windows":
             self.loginPath = "C:/Users/alanl/Desktop/duoLogin.txt"
             driver = webdriver.Chrome(service=Service("C:/Users/alanl/Downloads/chromedriver_win32/chromedriver.exe"))
             driver.set_window_position(2000, 0)
+            driver.maximize_window()
         else:
             raise "Error: OS Not Recognized"
-        driver.maximize_window()
+
         self.use_keyboard_button_pressed = False
         self.driver = driver
 
@@ -67,26 +72,32 @@ class Webdriver:
     def do_lesson(self, lesson_link):
         driver = self.driver
         driver.get(lesson_link)
-
+        driver.implicitly_wait(2)
         dictionary = self.load_dictionary_from_json()
 
-        progress_bar = driver.find_element(By.CLASS_NAME, "_2YmyD")
-        driver.implicitly_wait(2)
+        while True:
+            # NOTE - Untested Try Block
+            try:
+                # Progress bar
+                driver.find_element(By.CLASS_NAME, "_2YmyD")
+            except NoSuchElementException:
+                break
 
-        while EC.presence_of_element_located(progress_bar):
             next_button = driver.find_element(By.CLASS_NAME, "_3HhhB")
 
             # Presses next_button until it is disabled
             while next_button.get_attribute("aria-disabled") == "false":
                 next_button.click()
 
+            try:
+                skip_button = driver.find_element(By.CSS_SELECTOR, '.J51YJ')
+            except NoSuchElementException:
+                continue
+
             question_title = driver.find_element(By.CLASS_NAME, "_2LZl6").text
-            print(question_title)
 
             # Open Response Questions
-            try:
-                if question_title != "Write this in Spanish" and question_title != "Write this in English":
-                    raise NoSuchElementException
+            if question_title == "Write this in Spanish" or question_title == "Write this in English":
 
                 if not self.use_keyboard_button_pressed:
                     driver.find_element(By.CLASS_NAME, '_29cJe').click()
@@ -99,14 +110,43 @@ class Webdriver:
                     driver.find_element(By.CLASS_NAME, '_2EMUT').send_keys(answer)
                     next_button.click()
                 else:
-                    driver.find_element(By.CLASS_NAME, '_2EMUT').send_keys("Unknown Answer")
-                    # TO-DO
-                    # wait until next_button's attribute 'aria-disabled' is false
-                    next_button.click()
+                    skip_button.click()
                     dictionary[question_text] = driver.find_element(By.CLASS_NAME, '_1UqAr').text
                     self.save_dictionary_to_json(dictionary)
                     print("Saved Response to JSON")
+
                 continue
+
+            # Word Bank Questions
+            try:
+                driver.find_element(By.CLASS_NAME, "_1_wIY")
+                question_text = driver.find_element(By.CLASS_NAME, "_3NgMa").text
+
+                answer = dictionary.get(question_text)
+                buttons = driver.find_elements(By.CLASS_NAME, "_1yW4j")
+
+                if answer is None:
+                    skip_button.click()
+                    answers = driver.find_elements(By.CLASS_NAME, "_3gI0Y")
+                    answer = ""
+                    for word in answers:
+                        answer += word.text + "|"
+                    dictionary[question_text] = answer
+                    self.save_dictionary_to_json(dictionary)
+                    print("Saved Word Bank to JSON")
+
+                else:
+                    while len(answer) > 1:
+                        for button in buttons:
+                            seperatorIndex = answer.index('|')
+                            if button.text != answer[:seperatorIndex]:
+                                continue
+                            button.click()
+                            buttons.remove(button)
+                            answer = answer[seperatorIndex + 1:]
+                            break
+                continue
+
             except NoSuchElementException:
                 pass
 
@@ -117,15 +157,12 @@ class Webdriver:
                 if question_title == "Read and respond":
                     question_text = driver.find_element(By.CLASS_NAME, '_9XgpY').text
                 else:
-                    # If it is a multiple-select fill in the blank, it should skip it
-                    if driver.find_element(By.CLASS_NAME, "_1_wIY"):
-                        raise NoSuchElementException
                     question_text = driver.find_element(By.CLASS_NAME, '_3Fi4A').text
+
                 answer = dictionary.get(question_text)
 
                 if answer is None:
-                    # Hit skip and add answer
-                    driver.find_element(By.CSS_SELECTOR, '.J51YJ').click()
+                    skip_button.click()
                     dictionary[question_text] = driver.find_element(By.CLASS_NAME, '_1UqAr').text
                     self.save_dictionary_to_json(dictionary)
                     print("Saved MQA to JSON")
@@ -140,11 +177,8 @@ class Webdriver:
                 pass
 
             # Last Resort - Skips Question
-            try:
-                # Skip button
-                driver.find_element(By.CSS_SELECTOR, '.J51YJ').click()
-            except NoSuchElementException:
-                pass
+            print("Skipping: " + question_title)
+            skip_button.click()
 
         print("Lesson complete")
         self.save_dictionary_to_json(dictionary)
