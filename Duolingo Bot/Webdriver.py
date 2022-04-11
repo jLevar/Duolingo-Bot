@@ -8,7 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
 import platform
-# To - Do
+# To - Do:
 # Matching Questions
 # Use the title of the question to know which question before looking for elements (saves 2 seconds per question type)
 
@@ -72,11 +72,12 @@ class Webdriver:
     def do_lesson(self, lesson_link):
         driver = self.driver
         driver.get(lesson_link)
+        driver.find_element(By.CLASS_NAME, "_2YmyD")
         driver.implicitly_wait(2)
         dictionary = self.load_dictionary_from_json()
 
         while True:
-            # NOTE - Untested Try Block
+            # NOTE - I don't think this works
             try:
                 # Progress bar
                 driver.find_element(By.CLASS_NAME, "_2YmyD")
@@ -84,13 +85,15 @@ class Webdriver:
                 break
 
             next_button = driver.find_element(By.CLASS_NAME, "_3HhhB")
-
             # Presses next_button until it is disabled
             while next_button.get_attribute("aria-disabled") == "false":
                 next_button.click()
 
+            # The only reason this is in a try block is that on the read and respond questions, the next button
+            # doesn't actually get clicked until a second run through. Because there is no skip button on this screen,
+            # it throws an error
             try:
-                skip_button = driver.find_element(By.CSS_SELECTOR, '.J51YJ')
+                skip_button = driver.find_element(By.CLASS_NAME, 'J51YJ')
             except NoSuchElementException:
                 continue
 
@@ -138,12 +141,13 @@ class Webdriver:
                 else:
                     while len(answer) > 1:
                         for button in buttons:
-                            seperatorIndex = answer.index('|')
-                            if button.text != answer[:seperatorIndex]:
+                            seperator_index = answer.index('|')
+                            if button.text != answer[:seperator_index]:
                                 continue
                             button.click()
                             buttons.remove(button)
-                            answer = answer[seperatorIndex + 1:]
+                            # Truncates the leftmost word in the answer string
+                            answer = answer[seperator_index + 1:]
                             break
                 continue
 
@@ -175,6 +179,17 @@ class Webdriver:
                 continue
             except NoSuchElementException:
                 pass
+
+            # START HERE
+            if question_title == "Select the matching pairs":
+                questions = []
+                answers = []
+                for i in range(5):
+                    questions[i] = driver.find_elements(By.CSS_SELECTOR, f"div._2eHne: nth - child(1) > div:nth - child({i}) > button: nth - child(1)").text
+                    answers[i] = driver.find_elements(By.CSS_SELECTOR, f"div._2eHne: nth - child(2) > div:nth - child({i}) > button: nth - child(1)").text
+                    print(questions[i])
+
+
 
             # Last Resort - Skips Question
             print("Skipping: " + question_title)
