@@ -12,4 +12,3 @@ except (NoSuchElementException, TimeoutException):
 finally:
     print("Shutting down...")
     myWebdriver.quit()
-

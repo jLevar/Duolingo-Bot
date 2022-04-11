@@ -8,9 +8,11 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import json
 import platform
+
+
 # To - Do:
-# Matching Questions
-# Use the title of the question to know which question before looking for elements (saves 2 seconds per question type)
+# Single word dictionary unreliable due to gendered words: Current solution is to delete the answer if it doesn't work
+# But I would prefer it to store both answers and try both
 
 
 class Webdriver:
@@ -72,22 +74,21 @@ class Webdriver:
     def do_lesson(self, lesson_link):
         driver = self.driver
         driver.get(lesson_link)
+        dictionary = self.load_dictionary_from_json()
         driver.find_element(By.CLASS_NAME, "_2YmyD")
         driver.implicitly_wait(2)
-        dictionary = self.load_dictionary_from_json()
 
         while True:
-            # NOTE - I don't think this works
             try:
-                # Progress bar
-                driver.find_element(By.CLASS_NAME, "_2YmyD")
+                driver.find_element(By.CLASS_NAME, "_2YmyD")  # Progress bar
             except NoSuchElementException:
                 break
 
             next_button = driver.find_element(By.CLASS_NAME, "_3HhhB")
-            # Presses next_button until it is disabled
-            while next_button.get_attribute("aria-disabled") == "false":
+
+            if next_button.get_attribute("aria-disabled") == "false":
                 next_button.click()
+                continue
 
             # The only reason this is in a try block is that on the read and respond questions, the next button
             # doesn't actually get clicked until a second run through. Because there is no skip button on this screen,
@@ -99,25 +100,100 @@ class Webdriver:
 
             question_title = driver.find_element(By.CLASS_NAME, "_2LZl6").text
 
+
             # Open Response Questions
-            if question_title == "Write this in Spanish" or question_title == "Write this in English":
+            if "Write" in question_title:
+                one_word_answer = False
+                try:
+                    question_title.index('“')
+                    question_text = question_title[question_title.index('“') + 1: question_title.rindex('”')]
+                    answer_box_str = 'x_l95'
+                    one_word_answer = True
+                    print(question_text)
+                except ValueError:
+                    question_text = driver.find_element(By.CLASS_NAME, '_11rtD').text
+                    answer_box_str = '_2EMUT'
 
                 if not self.use_keyboard_button_pressed:
                     driver.find_element(By.CLASS_NAME, '_29cJe').click()
                     self.use_keyboard_button_pressed = True
 
-                question_text = driver.find_element(By.CLASS_NAME, '_11rtD').text
                 answer = dictionary.get(question_text)
 
                 if answer is not None:
-                    driver.find_element(By.CLASS_NAME, '_2EMUT').send_keys(answer)
+                    driver.find_element(By.CLASS_NAME, answer_box_str).send_keys(answer)
                     next_button.click()
                 else:
                     skip_button.click()
-                    dictionary[question_text] = driver.find_element(By.CLASS_NAME, '_1UqAr').text
-                    self.save_dictionary_to_json(dictionary)
-                    print("Saved Response to JSON")
+                    answer = driver.find_element(By.CLASS_NAME, '_1UqAr').text
 
+                    if one_word_answer:
+                        try:
+                            answer = answer[:answer.index(",")]
+                        except ValueError:
+                            pass
+
+                    dictionary[question_text] = answer
+                    # self.save_dictionary_to_json(dictionary)
+                    # print("Saved Response to JSON")
+                continue
+
+            # Matching Pairs Questions
+            if question_title == "Select the matching pairs":
+                left_words = [""] * 5
+                right_words = [""] * 5
+                left_buttons = []
+                right_buttons = []
+
+                for i in range(5):
+                    left_buttons.append(
+                        driver.find_element(By.XPATH, f'/html/body/div[1]/div/div/div/div/div[2]/div/div'
+                                                      f'/div/div/div[2]/div/div/div[1]/div[{i + 1}]/button'))
+                    right_buttons.append(
+                        driver.find_element(By.XPATH, f'/html/body/div[1]/div/div/div/div/div[2]/div/div'
+                                                      f'/div/div/div[2]/div/div/div[2]/div[{i + 1}]/button'))
+
+                    left_words[i] = left_buttons[i].text
+                    right_words[i] = right_buttons[i].text
+
+                    left_words[i] = left_words[i][left_words[i].index("\n") + 1:]
+                    right_words[i] = right_words[i][right_words[i].index("\n") + 1:]
+
+                for i in range(5):
+                    if left_buttons[i].get_attribute("aria-disabled") == "true":
+                        continue
+
+                    answer = dictionary.get(left_words[i])
+
+                    if answer is not None:
+                        for j in range(5):
+                            if right_words[j] == answer:
+                                left_buttons[i].click()
+                                right_buttons[j].click()
+                                break
+                            if j == 4:
+                                del dictionary[left_words[i]]
+                                # print("Deleted Match from JSON ")
+                                # self.save_dictionary_to_json(dictionary)
+                        continue
+
+                    for j in range(5):
+                        if right_buttons[j].get_attribute("aria-disabled") == "true":
+                            continue
+                        left_buttons[i].click()
+                        right_buttons[j].click()
+
+                        time.sleep(1)
+                        if left_buttons[i].get_attribute("aria-disabled") == "true":
+                            dictionary[left_words[i]] = right_words[j]
+                            # print("Saved Match to JSON")
+                            # self.save_dictionary_to_json(dictionary)
+                            break
+                continue
+
+            # Speaking Questions (Skipping)
+            if question_title == "Speak this sentence":
+                skip_button.click()
                 continue
 
             # Word Bank Questions
@@ -135,8 +211,8 @@ class Webdriver:
                     for word in answers:
                         answer += word.text + "|"
                     dictionary[question_text] = answer
-                    self.save_dictionary_to_json(dictionary)
-                    print("Saved Word Bank to JSON")
+                    # self.save_dictionary_to_json(dictionary)
+                    # print("Saved Word Bank to JSON")
 
                 else:
                     while len(answer) > 1:
@@ -160,6 +236,8 @@ class Webdriver:
 
                 if question_title == "Read and respond":
                     question_text = driver.find_element(By.CLASS_NAME, '_9XgpY').text
+                elif question_title == "Complete the chat":
+                    question_text = driver.find_element(By.CLASS_NAME, '_29e-M').text
                 else:
                     question_text = driver.find_element(By.CLASS_NAME, '_3Fi4A').text
 
@@ -168,8 +246,8 @@ class Webdriver:
                 if answer is None:
                     skip_button.click()
                     dictionary[question_text] = driver.find_element(By.CLASS_NAME, '_1UqAr').text
-                    self.save_dictionary_to_json(dictionary)
-                    print("Saved MQA to JSON")
+                    # self.save_dictionary_to_json(dictionary)
+                    # print("Saved MQA to JSON")
                 else:
                     for button in buttons:
                         if button.text == answer:
@@ -180,32 +258,22 @@ class Webdriver:
             except NoSuchElementException:
                 pass
 
-            # START HERE
-            if question_title == "Select the matching pairs":
-                questions = []
-                answers = []
-                for i in range(5):
-                    questions[i] = driver.find_elements(By.CSS_SELECTOR, f"div._2eHne: nth - child(1) > div:nth - child({i}) > button: nth - child(1)").text
-                    answers[i] = driver.find_elements(By.CSS_SELECTOR, f"div._2eHne: nth - child(2) > div:nth - child({i}) > button: nth - child(1)").text
-                    print(questions[i])
-
-
-
             # Last Resort - Skips Question
             print("Skipping: " + question_title)
             skip_button.click()
 
-        print("Lesson complete")
+        print("Lesson Complete")
         self.save_dictionary_to_json(dictionary)
+        print("Saved Dictionary to JSON")
         self.driver = driver
 
     @staticmethod
-    def save_dictionary_to_json(dictionary):
+    def save_dictionary_to_json(dictionary: dict):
         with open("dict.json", 'w') as file:
-            file.write(json.dumps(dictionary))
+            file.write(json.dumps(dictionary, indent=1))
 
     @staticmethod
-    def load_dictionary_from_json():
+    def load_dictionary_from_json() -> dict:
         return json.load(open("dict.json"))
 
     def quit(self):
