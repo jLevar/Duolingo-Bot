@@ -74,9 +74,12 @@ class Webdriver:
     def do_lesson(self, lesson_link):
         driver = self.driver
         driver.get(lesson_link)
-        dictionary = self.load_dictionary_from_json()
-        driver.find_element(By.CLASS_NAME, "_2YmyD")
         driver.implicitly_wait(2)
+        dictionary = self.load_dictionary_from_json("answers.json")
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "_2YmyD"))
+        )
 
         while True:
             try:
@@ -114,7 +117,6 @@ class Webdriver:
                         )
                         if use_keyboard_button.text == "USE KEYBOARD":
                             use_keyboard_button.click()
-                            print("Clicking the Use Keyboard button")
                             self.use_keyboard_button_pressed = True
                     except TimeoutException:
                         pass
@@ -181,8 +183,6 @@ class Webdriver:
                                 break
                             if j == 4:
                                 del dictionary[left_words[i]]
-                                # print("Deleted Match from JSON ")
-                                # self.save_dictionary_to_json(dictionary)
                         continue
 
                     for j in range(5):
@@ -194,8 +194,6 @@ class Webdriver:
                         time.sleep(1)
                         if left_buttons[i].get_attribute("aria-disabled") == "true":
                             dictionary[left_words[i]] = right_words[j]
-                            # print("Saved Match to JSON")
-                            # self.save_dictionary_to_json(dictionary)
                             break
                 continue
 
@@ -219,13 +217,15 @@ class Webdriver:
                     for word in answers:
                         answer += word.text + "|"
                     dictionary[question_text] = answer
-                    # self.save_dictionary_to_json(dictionary)
-                    # print("Saved Word Bank to JSON")
-
                 else:
                     while len(answer) > 1:
                         for button in buttons:
-                            seperator_index = answer.index('|')
+                            try:
+                                seperator_index = answer.index('|')
+                            except ValueError:
+                                del dictionary[question_text]
+                                answer = ""
+                                break
                             if button.text != answer[:seperator_index]:
                                 continue
                             button.click()
@@ -246,6 +246,9 @@ class Webdriver:
                     question_text = driver.find_element(By.CLASS_NAME, '_9XgpY').text
                 elif question_title == "Complete the chat":
                     question_text = driver.find_element(By.CLASS_NAME, '_29e-M').text
+                elif "How do you say" in question_title:
+                    question_text = driver.find_element(By.CLASS_NAME, '_2LZl6').text
+                    question_text = question_text[question_text.index("\""):question_text.rindex("\"")]
                 else:
                     question_text = driver.find_element(By.CLASS_NAME, '_3Fi4A').text
 
@@ -254,14 +257,15 @@ class Webdriver:
                 if answer is None:
                     skip_button.click()
                     dictionary[question_text] = driver.find_element(By.CLASS_NAME, '_1UqAr').text
-                    # self.save_dictionary_to_json(dictionary)
-                    # print("Saved MQA to JSON")
                 else:
-                    for button in buttons:
+                    for index, button in enumerate(buttons):
                         if button.text == answer:
                             button.click()
                             next_button.click()
                             break
+                        if index == len(buttons)-1:
+                            del dictionary[question_text]
+
                 continue
             except NoSuchElementException:
                 pass
@@ -271,18 +275,69 @@ class Webdriver:
             skip_button.click()
 
         print("Lesson Complete")
-        self.save_dictionary_to_json(dictionary)
-        print("Saved Dictionary to JSON")
+        self.save_dictionary_to_json(dictionary, "answers.json")
+        print("Saved Answers to JSON")
         self.driver = driver
 
+    def reset_driver(self):
+        self.driver.get("https://www.duolingo.com/learn")
+        try:
+            WebDriverWait(self.driver, 5).until(
+                EC.element_to_be_clickable((By.CLASS_NAME, '_1rl91'))  # "NO THANKS" Button
+            ).click()
+        except TimeoutException:
+            pass
+
+    def update_lesson(self, lesson: str):
+        self.driver.implicitly_wait(10)
+
+        if lesson == "ALL":
+            lessons = {}
+            lesson_buttons = self.driver.find_elements(By.CLASS_NAME, '_3TK8W')
+            for button in lesson_buttons:
+
+                if "\n" in button.text:
+                    lesson_name = button.text[button.text.index("\n") + 1:]
+                    lesson_crowns = int(button.text[:button.text.index("\n")])
+                else:
+                    lesson_name = button.text
+                    lesson_crowns = 0
+
+                lesson_name = lesson_name.replace(" ", "-")
+                lessons[lesson_name] = lesson_crowns
+
+            self.save_dictionary_to_json(lessons, "lessons.json")
+            print("Saved Lessons to JSON")
+        else:
+            lessons = self.get_lessons()
+            lesson_buttons = self.driver.find_elements(By.CLASS_NAME, '_3TK8W')
+            for button in lesson_buttons:
+                if "\n" in button.text:
+                    lesson_name = button.text[button.text.index("\n") + 1:]
+                    lesson_crowns = int(button.text[:button.text.index("\n")])
+                else:
+                    lesson_name = button.text
+                    lesson_crowns = 0
+
+                lesson_name = lesson_name.replace(" ", "-")
+
+                if lesson_name == lesson:
+                    lessons[lesson] = lesson_crowns
+                    print(f"Updated Lesson \"{lesson}\"")
+                    self.save_dictionary_to_json(lessons, "lessons.json")
+                    return
+
+    def get_lessons(self) -> dict:
+        return self.load_dictionary_from_json("lessons.json")
+
     @staticmethod
-    def save_dictionary_to_json(dictionary: dict):
-        with open("dict.json", 'w') as file:
+    def save_dictionary_to_json(dictionary: dict, file_path: str):
+        with open(file_path, 'w') as file:
             file.write(json.dumps(dictionary, indent=1))
 
     @staticmethod
-    def load_dictionary_from_json() -> dict:
-        return json.load(open("dict.json"))
+    def load_dictionary_from_json(file_path: str) -> dict:
+        return json.load(open(file_path))
 
     def quit(self):
         time.sleep(5)
