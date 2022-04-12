@@ -1,5 +1,5 @@
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -13,7 +13,7 @@ import platform
 # To - Do:
 # Single word dictionary unreliable due to gendered words: Current solution is to delete the answer if it doesn't work
 # But I would prefer it to store both answers and try both
-
+# Optimize open responses by not checking for the use keyboard button on lesson 4 and up
 
 class Webdriver:
     def __init__(self):
@@ -85,7 +85,6 @@ class Webdriver:
                 break
 
             next_button = driver.find_element(By.CLASS_NAME, "_3HhhB")
-
             if next_button.get_attribute("aria-disabled") == "false":
                 next_button.click()
                 continue
@@ -100,23 +99,35 @@ class Webdriver:
 
             question_title = driver.find_element(By.CLASS_NAME, "_2LZl6").text
 
+            # Type Missing Word Questions
+            if question_title == "Type the missing word":
+                driver.find_element(By.CLASS_NAME, '_29cJe').click()  # Make Harder Button
+                skip_button.click()
+                continue
 
             # Open Response Questions
             if "Write" in question_title:
-                one_word_answer = False
+                if not self.use_keyboard_button_pressed:
+                    try:
+                        use_keyboard_button = WebDriverWait(driver, 1).until(
+                            EC.presence_of_element_located((By.CLASS_NAME, '_29cJe'))
+                        )
+                        if use_keyboard_button.text == "USE KEYBOARD":
+                            use_keyboard_button.click()
+                            print("Clicking the Use Keyboard button")
+                            self.use_keyboard_button_pressed = True
+                    except TimeoutException:
+                        pass
+
                 try:
                     question_title.index('“')
                     question_text = question_title[question_title.index('“') + 1: question_title.rindex('”')]
                     answer_box_str = 'x_l95'
                     one_word_answer = True
-                    print(question_text)
                 except ValueError:
                     question_text = driver.find_element(By.CLASS_NAME, '_11rtD').text
                     answer_box_str = '_2EMUT'
-
-                if not self.use_keyboard_button_pressed:
-                    driver.find_element(By.CLASS_NAME, '_29cJe').click()
-                    self.use_keyboard_button_pressed = True
+                    one_word_answer = False
 
                 answer = dictionary.get(question_text)
 
@@ -132,10 +143,7 @@ class Webdriver:
                             answer = answer[:answer.index(",")]
                         except ValueError:
                             pass
-
                     dictionary[question_text] = answer
-                    # self.save_dictionary_to_json(dictionary)
-                    # print("Saved Response to JSON")
                 continue
 
             # Matching Pairs Questions
